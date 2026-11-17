@@ -1,0 +1,40 @@
+{
+  "title": "MCP Tool Call Enforcement with Tetragon & Cilium",
+  "description": "Learn how to enforce MCP tool-call security at the gateway, network, and runtime layers using a Go approval proxy, Cilium, and Tetragon on Kubernetes.",
+  "details": {
+    "intro": {
+      "text": "intro.md",
+      "background": "background.sh",
+      "foreground": "foreground.sh"
+    },
+    "steps": [
+      {
+        "title": "Layer 1: MCP Approval Gateway",
+        "text": "step1.md"
+      },
+      {
+        "title": "Layer 2: Cilium Network Enforcement",
+        "text": "step2.md"
+      },
+      {
+        "title": "Layer 3: Tetragon Runtime Syscall Enforcement",
+        "text": "step3.md"
+      }
+    ],
+    "finish": {
+      "text": "finish.md"
+    },
+    "assets": {
+      "host01": [
+        {
+          "file": "**/*",
+          "target": "/root/mcp-lab",
+          "chmod": "+x"
+        }
+      ]
+    }
+  },
+  "backend": {
+    "imageid": "kubernetes-kubeadm-1node"
+  }
+}
