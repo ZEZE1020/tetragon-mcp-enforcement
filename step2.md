@@ -1,44 +1,52 @@
-# Layer 2 — Cilium Network Enforcement
+# Layer 2: Network Egress Lockdown (Cilium)
 
-Even with an approval gateway, a compromised or confused tool-runner process might attempt data exfiltration or contact untrusted endpoints. Cilium enforces **identity-aware L3/L4 egress policy** in the kernel (eBPF) so the pod can only reach what it needs.
+Even if a tool call is approved (or an agent has legitimate execution rights), a compromised tool runner must not be able to exfiltrate data or reach arbitrary external endpoints. Cilium enforces identity-aware **L3/L4 egress policy** in the eBPF datapath so the pod can only talk to explicitly allowed destinations.
 
-## 1. Inspect the policy
+## 1. Baseline (before policy): unhardened egress
+
+From `deploy/mcp-tool-runner` in `mcp-demo`, test an external destination. Before applying the Cilium policy, this should succeed:
+
+```bash
+kubectl -n mcp-demo exec deploy/mcp-tool-runner -- sh -c 'curl -sSI --max-time 5 https://example.com | head -n 1'
+```{{exec}}
+
+Expected: an HTTP status line such as `HTTP/2 200` (baseline external egress is reachable).
+
+## 2. Inspect and apply the Cilium egress policy
+
+Review the policy (allows DNS to `kube-dns` and TCP/8080 only to `app=approved-backend` in `mcp-demo`):
 
 ```bash
 cat /root/mcp-lab/assets/policies/cnp-mcp-egress.yaml
 ```{{exec}}
 
-This `CiliumNetworkPolicy` selects pods labeled `app: mcp-tool-runner` in namespace `mcp-demo` and allows egress **only** to:
-- `kube-dns` (UDP/TCP 53) for name resolution
-- `app: approved-backend` on TCP 8080
-
-Everything else (including the public internet) is denied by default for the selected endpoints.
-
-## 2. Test connectivity before applying the policy
-
-From the tool-runner pod, both the approved backend and an external site should be reachable (baseline):
-
-```bash
-kubectl -n mcp-demo exec deploy/mcp-tool-runner -- sh -c 'curl -sS --max-time 5 -o /dev/null -w "approved-backend: %{http_code}\n" http://approved-backend.mcp-demo.svc.cluster.local:8080/ || echo "approved-backend: FAILED"'
-```{{exec}}
-
-```bash
-kubectl -n mcp-demo exec deploy/mcp-tool-runner -- sh -c 'curl -sS --max-time 5 -o /dev/null -w "example.com: %{http_code}\n" https://example.com || echo "example.com: FAILED"'
-```{{exec}}
-
-## 3. Apply the Cilium policy and re-test
+Apply it:
 
 ```bash
 kubectl apply -f /root/mcp-lab/assets/policies/cnp-mcp-egress.yaml
 ```{{exec}}
 
 ```bash
-/root/mcp-lab/assets/scripts/test-exfiltration.sh
+kubectl -n mcp-demo get ciliumnetworkpolicies.cilium.io
 ```{{exec}}
 
-## 4. Verify
+## 3. Re-test egress (after policy): blocked internet, allowed backend
 
-- Requests to `approved-backend:8080` should **succeed**.
-- Requests to `https://example.com` should **fail/timeout**, demonstrating blocked exfiltration.
+Attempt to reach the public internet again (should be dropped/timed out by Cilium):
 
-> **Takeaway:** Network policy constrains blast radius by limiting where tool execution can communicate, independent of what the LLM requested. Next, we’ll stop shell escapes at runtime with Tetragon.
+```bash
+kubectl -n mcp-demo exec deploy/mcp-tool-runner -- sh -c 'curl -sSI --max-time 5 https://example.com | head -n 1 || echo "example.com: BLOCKED/TIMEOUT"'
+```{{exec}}
+
+Immediately test the approved in-cluster backend (should still succeed):
+
+```bash
+kubectl -n mcp-demo exec deploy/mcp-tool-runner -- sh -c 'curl -sS --max-time 5 -o /dev/null -w "approved-backend: HTTP %{http_code}\n" http://approved-backend.mcp-demo.svc.cluster.local:8080/'
+```{{exec}}
+
+> **Scripted check:** you can run the combined enforcement test script as well:
+> ```bash
+> /root/mcp-lab/assets/scripts/test-exfiltration.sh
+> ```{{exec}}
+
+**Takeaway:** least-privilege network isolation limits blast radius and blocks exfiltration paths, even when a tool invocation itself is valid or approved. Next, we enforce runtime behavior at the kernel level with Tetragon.

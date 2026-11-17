@@ -1,11 +1,13 @@
 # MCP Tool Call Enforcement with Tetragon & Cilium
 
-Model Context Protocol (MCP) lets LLM agents invoke tools via structured JSON-RPC `tools/call` requests. But when an agent’s context is manipulated (prompt injection, poisoned documents, confused-deputy flows), **the tool call itself is often perfectly valid JSON-RPC**. Prompt filtering and output guardrails can’t reliably stop a well-formed, authorized-looking request that the model was tricked into making.
+Prompt guardrails inspect natural language, not execution. Once an LLM's context is poisoned via indirect prompt injection, it emits a syntactically valid MCP JSON-RPC `tools/call` payload that bypasses prompt filters entirely. The request looks correct to the protocol layer, so "safe" text-based controls cannot reliably stop a dangerous tool invocation that the model was tricked into making. This lab shows how to enforce MCP tool-call safety **outside the model** with defense in depth.
 
-This lab demonstrates **defense in depth** with three enforcement layers that operate outside the LLM:
+## What you will test (3-layer architecture)
 
-1. **Layer 1 — MCP Approval Gateway (Go):** A JSON-RPC proxy that classifies tool calls by risk. Low-risk read tools are forwarded immediately; high-risk tools (e.g. `drop_database`, `modify_infra`, `exec_shell`) are held in `PENDING_APPROVAL` until explicitly approved.
-2. **Layer 2 — Cilium Network Enforcement:** A `CiliumNetworkPolicy` restricts the tool-runner pod’s egress to only DNS and the approved backend, blocking exfiltration to the public internet.
-3. **Layer 3 — Tetragon Runtime Enforcement:** A `TracingPolicyNamespaced` hooks `sys_execve` and sends `SIGKILL` on shell execution attempts (`/bin/sh`, `/bin/bash`, etc.) inside the tool-runner, stopping runtime escapes even if a call gets through.
+1. **Application Layer (Go MCP Gateway):** Holds high-risk JSON-RPC calls in `PENDING_APPROVAL` until human sign-off, while allowing low-risk reads to proceed.
+2. **Network Layer (Cilium):** Enforces L3/L4 egress policies (`CiliumNetworkPolicy`) so tool runners cannot exfiltrate data or reach unauthorized endpoints.
+3. **Kernel Runtime Layer (Tetragon):** Enforces eBPF `TracingPolicyNamespaced` syscall hooks that `SIGKILL` compromised containers the instant they attempt `sys_execve` on a shell.
 
-By the end, you’ll see how to combine application-layer approval, identity-aware network policy, and kernel-level runtime enforcement to contain manipulated MCP tool calls.
+## Lab environment
+
+`background.sh` automatically provisions **Cilium**, **Tetragon**, and the **`mcp-demo`** namespace workloads into **`/root/mcp-lab`**. Wait for the foreground setup check to complete, then continue to **Step 1** to verify the cluster and begin the demo.

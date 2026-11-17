@@ -1,20 +1,21 @@
-# Finish — Defense in Depth for MCP Tool Calls
+# Wrap-Up & Takeaways
 
-You’ve implemented and validated three complementary enforcement layers for MCP tool execution:
+You validated a practical, layered defense for MCP tool-call enforcement where prompt/content filtering alone is not enough:
 
-1. **Gateway approval (application layer):** A Go JSON-RPC proxy forwards low-risk `tools/call` requests but holds high-risk actions for explicit approval, preventing silent execution of dangerous operations produced by manipulated LLM context.
-2. **Cilium egress policy (network layer):** The tool-runner pod can resolve DNS and talk only to the approved backend, blocking exfiltration paths to untrusted destinations.
-3. **Tetragon TracingPolicy (runtime layer):** `sys_execve` attempts to spawn shells inside the tool-runner are terminated with `SIGKILL`, stopping post-exploitation/runtime escape techniques.
+1. **Protocol / Intent (Go MCP Gateway):** Classifies MCP JSON-RPC `tools/call` requests and holds high-risk actions in `PENDING_APPROVAL` until explicit human sign-off.
+2. **Egress (Cilium):** Applies L3/L4 network policy so the tool runner can reach only approved services (DNS + approved backend) and cannot exfiltrate to arbitrary internet destinations.
+3. **Syscalls (Tetragon):** Uses eBPF runtime enforcement to terminate forbidden shell execution attempts (`sys_execve` → `SIGKILL`) inside the container at the kernel level.
 
-## Key lesson
-Prompt filtering alone is insufficient because the attack often arrives as **valid, well-formed MCP JSON-RPC**. Robust protection comes from enforcing least privilege and explicit authorization **outside** the model: at the tool boundary, on the network, and in the kernel.
+## Adapting for production MCP deployments
 
-## Clean up (optional)
+- **Roll out enforcement safely:** start with observability/audit-first posture before hard kills (e.g. use Tetragon `Post` actions or broader telemetry to baseline behavior, then move to blocking such as `Override`/`Sigkill` once confidence is high).
+- **Tune high-risk classifications:** expand the gateway's risk model beyond static tool names (arguments, destinations, data sensitivity, tenant/context) and integrate with real approval workflows/audit logs.
+- **Harden by identity and scope:** keep Cilium policies least-privilege and namespace/workload-scoped; explicitly allow only required DNS names/endpoints and required ports.
+- **Operational readiness:** define break-glass procedures, alerting on denied/terminated events, and CI validation of policies alongside MCP server/tool changes.
 
-```bash
-kubectl delete -f /root/mcp-lab/assets/policies/tp-block-shell.yaml --ignore-not-found
-kubectl delete -f /root/mcp-lab/assets/policies/cnp-mcp-egress.yaml --ignore-not-found
-kubectl delete -f /root/mcp-lab/assets/gateway/k8s.yaml --ignore-not-found
-```{{exec}}
+## Resources & contact
 
-Thanks for completing the lab!
+- **GitHub repository:** [https://github.com/ZEZE1020/mcp-tetragon-enforcement](https://github.com/ZEZE1020/mcp-tetragon-enforcement)
+- **Speaker (MCP Dev Summit Nairobi):** ZEZE1020 — [https://github.com/ZEZE1020](https://github.com/ZEZE1020)
+
+Thanks for running the lab! You now have a concrete blueprint for combining application approval, network isolation, and kernel runtime enforcement to contain manipulated MCP tool calls.
