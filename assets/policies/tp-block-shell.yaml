@@ -1,0 +1,26 @@
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicyNamespaced
+metadata:
+  name: block-shell-exec
+  namespace: mcp-demo
+spec:
+  podSelector:
+    matchLabels:
+      app: mcp-tool-runner
+  kprobes:
+    - call: "sys_execve"
+      syscall: true
+      args:
+        - index: 0
+          type: "string"
+      selectors:
+        - matchArgs:
+            - index: 0
+              operator: "Postfix"
+              values:
+                - "/sh"
+                - "/bash"
+                - "/dash"
+                - "/zsh"
+          matchActions:
+            - action: Sigkill
