@@ -66,8 +66,8 @@ spec:
     spec:
       containers:
         - name: mcp-gateway
-          image: mcp-gateway:local
-          imagePullPolicy: IfNotPresent
+          image: ghcr.io/zeze1020/mcp-gateway:latest
+          imagePullPolicy: Always
           env:
             - name: LISTEN_ADDR
               value: ":8090"

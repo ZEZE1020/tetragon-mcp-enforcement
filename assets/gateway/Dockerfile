@@ -8,6 +8,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /out/mcp-gateway .
 
 FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /
+LABEL org.opencontainers.image.source="https://github.com/ZEZE1020/tetragon-mcp-enforcement"
+LABEL org.opencontainers.image.description="MCP gateway demo container for the Tetragon MCP enforcement lab"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=build /out/mcp-gateway /mcp-gateway
 EXPOSE 8090
 USER nonroot:nonroot

@@ -56,22 +56,8 @@ helm upgrade --install tetragon cilium/tetragon -n kube-system --wait --timeout 
 
 kubectl -n kube-system rollout status ds/tetragon --timeout=300s
 
-# Build and deploy lab workloads
-echo "[background] Building mcp-gateway image..."
-cd "$LAB_DIR/assets/gateway"
-
-# Ensure Go is available (kubeadm image usually has it; install if missing)
-if ! command -v go >/dev/null 2>&1; then
-  echo "[background] Installing Go..."
-  GO_VERSION=1.22.5
-  curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
-  rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tar.gz
-  export PATH=$PATH:/usr/local/go/bin
-fi
-
-docker build -t mcp-gateway:local .
-
-echo "[background] Deploying lab workloads..."
+# Deploy lab workloads
+echo "[background] Deploying lab workloads (pulling published images)..."
 kubectl apply -f "$LAB_DIR/assets/gateway/k8s.yaml"
 
 echo "[background] Waiting for pods in mcp-demo namespace to be Ready..."
