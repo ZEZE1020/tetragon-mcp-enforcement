@@ -5,7 +5,7 @@ REGISTRY="ghcr.io"
 OWNER="zeze1020"
 IMAGE_NAME="mcp-gateway"
 IMAGE="${REGISTRY}/${OWNER}/${IMAGE_NAME}:latest"
-CONTEXT_DIR="assets/gateway"
+CONTEXT_DIR="mcp-enforcement/assets/gateway"
 PLATFORMS_LOCAL="linux/amd64"
 
 # Resolve token

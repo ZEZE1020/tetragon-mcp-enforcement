@@ -1,0 +1,9 @@
+# Compiled binaries
+mcp-gateway
+**/mcp-gateway
+*.exe
+*.out
+
+# OS / Editor files
+.DS_Store
+*.swp

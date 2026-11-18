@@ -27,8 +27,8 @@
     "assets": {
       "host01": [
         {
-          "file": "**/*",
-          "target": "/root/mcp-lab",
+          "file": "**",
+          "target": "/root/mcp-lab/assets",
           "chmod": "+x"
         }
       ]

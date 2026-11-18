@@ -45,8 +45,8 @@ jobs:
       - name: Build and push mcp-gateway
         uses: docker/build-push-action@v6
         with:
-          context: ./assets/gateway
-          file: ./assets/gateway/Dockerfile
+          context: ./mcp-enforcement/assets/gateway
+          file: ./mcp-enforcement/assets/gateway/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta-gateway.outputs.tags }}
