@@ -1,0 +1,17 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  # Disable default kindnet so Cilium is the sole CNI (enables L3/L4 policies + Hubble UI cleanly)
+  disableDefaultCNI: true
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # Layer 1: MCP Enforcement Gateway + Native MCP Apps Web Console
+      - containerPort: 30090
+        hostPort: 30090
+        protocol: TCP
+      # Layer 2: Cilium Hubble UI (live traffic flows & policy drops)
+      - containerPort: 31235
+        hostPort: 31235
+        protocol: TCP
+  - role: worker
