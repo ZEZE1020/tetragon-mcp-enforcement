@@ -21,15 +21,33 @@ spec:
         app: approved-backend
     spec:
       containers:
-        - name: http-echo
-          image: hashicorp/http-echo:1.0.0
-          args: ["-text=approved-backend:ok", "-listen=:8080"]
+        - name: approved-backend
+          image: ghcr.io/zeze1020/mcp-gateway:latest
+          imagePullPolicy: IfNotPresent
+          args: ["--mode=backend"]
+          env:
+            - name: LISTEN_ADDR
+              value: ":8080"
           ports:
             - containerPort: 8080
               name: http
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
           readinessProbe:
             httpGet:
-              path: /
+              path: /healthz
               port: 8080
             initialDelaySeconds: 1
             periodSeconds: 3
@@ -46,6 +64,71 @@ spec:
     - name: http
       port: 8080
       targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-tool-runner
+  namespace: mcp-demo
+  labels:
+    app: mcp-tool-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-tool-runner
+  template:
+    metadata:
+      labels:
+        app: mcp-tool-runner
+    spec:
+      containers:
+        - name: tool-runner
+          image: ghcr.io/zeze1020/mcp-gateway:latest
+          imagePullPolicy: IfNotPresent
+          args: ["--mode=runner"]
+          env:
+            - name: LISTEN_ADDR
+              value: ":8081"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - containerPort: 8081
+              name: http
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 24Mi
+            limits:
+              cpu: 200m
+              memory: 96Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 1
+            periodSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-tool-runner
+  namespace: mcp-demo
+spec:
+  selector:
+    app: mcp-tool-runner
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -67,20 +150,37 @@ spec:
       containers:
         - name: mcp-gateway
           image: ghcr.io/zeze1020/mcp-gateway:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
+          args: ["--mode=gateway"]
           env:
             - name: LISTEN_ADDR
               value: ":8090"
             - name: BACKEND_URL
               value: "http://approved-backend.mcp-demo.svc.cluster.local:8080"
+            - name: RUNNER_URL
+              value: "http://mcp-tool-runner.mcp-demo.svc.cluster.local:8081"
           ports:
             - containerPort: 8090
               name: http
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
           readinessProbe:
             httpGet:
               path: /healthz
               port: 8090
-            initialDelaySeconds: 2
+            initialDelaySeconds: 1
             periodSeconds: 3
           livenessProbe:
             httpGet:
@@ -103,32 +203,3 @@ spec:
       port: 8090
       targetPort: 8090
       nodePort: 30090
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: mcp-tool-runner
-  namespace: mcp-demo
-  labels:
-    app: mcp-tool-runner
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: mcp-tool-runner
-  template:
-    metadata:
-      labels:
-        app: mcp-tool-runner
-    spec:
-      containers:
-        - name: tool-runner
-          image: curlimages/curl:8.10.1
-          command: ["sh", "-c", "sleep infinity"]
-          resources:
-            requests:
-              cpu: 10m
-              memory: 32Mi
-            limits:
-              cpu: 200m
-              memory: 128Mi

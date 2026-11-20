@@ -1,94 +1,84 @@
-# Layer 1: Application Approval Gate (Go)
+# Layer 1: MCP Approval Gateway & Native MCP Apps UI
 
-The Go MCP gateway proxies JSON-RPC 2.0 `tools/call` requests. Low-risk tools are forwarded immediately; high-risk tools are classified and held in a `PENDING_APPROVAL` state until an explicit human decision (`APPROVED` / `REJECTED`) is recorded.
+The Go MCP gateway (`mcp-gateway`) implements MCP Streamable HTTP (`POST /mcp`), exposes **Native MCP App UI resources** (`ui://mcp-demo/*`, MIME `text/html;profile=mcp-app`), and gates every `tools/call` by risk tier before forwarding execution to `mcp-tool-runner` or `approved-backend`.
 
-## 1. Verify the cluster and `mcp-demo` workloads
+## 1. Open the MCP Enforcement Console (Native MCP Apps UI)
 
-Confirm Kubernetes, Cilium/Tetragon dependencies, and the demo pods are running:
+You can interact visually in the browser **without needing an LLM API key**:
+
+- **[Open MCP Enforcement Console (:30090)]({{TRAFFIC_HOST1_30090}})** — Simulated Agent Scenarios, Human Approval Queue, Sandboxed Native MCP App `<iframe>` renderer, and JSON-RPC 2.0 Wire Inspector.
+- **[Open Cilium Hubble UI (:31235)]({{TRAFFIC_HOST1_31235}})** — Live service map & traffic flows (we'll use this heavily in Step 2).
+
+Verify the `mcp-demo` workloads in the terminal:
 
 ```bash
 kubectl get pods -n mcp-demo
 ```{{exec}}
 
-(You should see `approved-backend`, `mcp-gateway`, and `mcp-tool-runner` pods in `Running/Ready` state.)
+## 2. Inspect MCP Protocol Handshake, Tools & Native `ui://` Resources
 
-## 2. Inspect the gateway approval state machine
-
-The gateway treats read-style tools as low risk and dangerous tools as high risk. High-risk calls are queued and block until a decision is made.
-
-```bash
-sed -n '30,90p' /root/mcp-lab/assets/gateway/main.go
-```{{exec}}
-
-```bash
-sed -n '138,180p' /root/mcp-lab/assets/gateway/main.go
-```{{exec}}
-
-Key logic (from `assets/gateway/main.go`):
-
-```go
-const (
-	StatusPending  ApprovalStatus = "PENDING_APPROVAL"
-	StatusApproved ApprovalStatus = "APPROVED"
-	StatusRejected ApprovalStatus = "REJECTED"
-)
-
-// low-risk: list_inventory, get_status -> forwarded immediately
-// high-risk: drop_database, modify_infra, exec_shell -> held for approval
-// unknown tools are treated as high-risk by default (fail-safe)
-```{{copy}}
-
-## 3. Test JSON-RPC tool calls through the gateway
-
-The gateway is exposed via NodePort `30090` in this lab (`http://localhost:30090/mcp`).
-
-### a) Low-risk call (`list_inventory`) — succeeds immediately
+Query `tools/list` to see the 6 MCP tools and their `_meta.ui.resourceUri` bindings:
 
 ```bash
 curl -sS -X POST http://localhost:30090/mcp \
   -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_inventory","arguments":{"scope":"demo"}}}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | head -c 1200; echo ""
 ```{{exec}}
 
-Expected: immediate `200 OK` JSON-RPC response proxied/wrapped from the approved backend.
-
-### b) High-risk call (`drop_database`) — intercepted and held
-
-This request blocks until a human approves or rejects it. Run it in the background so you can inspect the pending queue:
+List the native MCP App UI resources served by the gateway (`resources/list`):
 
 ```bash
 curl -sS -X POST http://localhost:30090/mcp \
   -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"drop_database","arguments":{"target":"prod"}}}' > /tmp/high_risk_response.json &
+  -d '{"jsonrpc":"2.0","id":2,"method":"resources/list"}'
+```{{exec}}
+
+## 3. Test Low-Risk vs. High-Risk Tool Calls
+
+### a) Low-risk call (`list_inventory`) — immediate pass-through
+
+```bash
+curl -sS -X POST http://localhost:30090/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_inventory","arguments":{"scope":"demo"}}}'
+```{{exec}}
+
+Notice `"via_runner": true`: `mcp-gateway` routed the read through `mcp-tool-runner` → `approved-backend:8080`.
+
+### b) High-risk call (`drop_database`) — held in `PENDING_APPROVAL`
+
+Simulate an indirect prompt injection triggering `drop_database` (run in background so you can approve it either via the Web Console or CLI):
+
+```bash
+curl -sS -X POST http://localhost:30090/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"drop_database","arguments":{"target":"prod"}}}' > /tmp/high_risk_response.json &
 echo "High-risk request PID: $!"
 sleep 2
 ```{{exec}}
 
-Expected: the call does **not** complete yet; the gateway holds it with status `PENDING_APPROVAL` and assigns an approval `request_id` (`id`).
-
-### c) Inspect pending calls, approve, and verify execution proceeds
-
-List pending requests:
+### c) Inspect `/pending` and approve (or click **Approve** in the Web Console!)
 
 ```bash
 curl -sS http://localhost:30090/pending
 ```{{exec}}
 
-Approve the held request (captures the first pending `id` and posts to `/approve?id=<id>`):
+Approve the latest pending call via CLI (if you haven't already clicked **Approve** in the Web Console):
 
 ```bash
-APPROVAL_ID=$(curl -sS http://localhost:30090/pending | grep -o '"id":"[0-9]*"' | head -n1 | cut -d'"' -f4)
-echo "Approving request_id=${APPROVAL_ID}"
-curl -sS -X POST "http://localhost:30090/approve?id=${APPROVAL_ID}"
+APPROVAL_ID=$(curl -sS http://localhost:30090/pending | grep -o '"id":"[0-9]*","tool":"[^"]*","status":"PENDING_APPROVAL"' | tail -n1 | grep -o '"id":"[0-9]*"' | cut -d'"' -f4)
+if [ -n "$APPROVAL_ID" ]; then
+  echo "Approving request_id=${APPROVAL_ID}"
+  curl -sS -X POST "http://localhost:30090/approve?id=${APPROVAL_ID}"
+  echo ""
+fi
 wait
 cat /tmp/high_risk_response.json
 ```{{exec}}
 
-Expected: the pending call transitions to `APPROVED`, the originally blocked `tools/call` is forwarded to the backend, and the response is returned only **after** human approval.
-
-> **One-command demo alternative:** you can run the full scripted flow (low-risk + high-risk + pending + approve) at any time:
+> **One-command demo script:**
 > ```bash
-> /root/mcp-lab/assets/scripts/trigger-high-risk.sh
+> /root/mcp-lab/scripts/trigger-high-risk.sh
 > ```{{exec}}
 
-**Takeaway:** even if an attacker induces a syntactically valid high-risk MCP `tools/call`, the application-layer gate enforces an out-of-band human approval boundary before execution.
+**Takeaway:** Even when an attacker tricks a model into emitting a valid high-risk MCP `tools/call`, Layer 1 enforces an out-of-band human approval boundary—and renders native `ui://` MCP App views directly in the host console.

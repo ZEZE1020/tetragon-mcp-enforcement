@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MCP Enforcement Gateway · Native MCP Apps & 3-Layer Defense</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0f17;
+      --panel: #121826;
+      --panel2: #171f30;
+      --border: #263147;
+      --text: #e6edf7;
+      --muted: #8b9bb4;
+      --blue: #58a6ff;
+      --green: #3fb950;
+      --amber: #e3b341;
+      --red: #f85149;
+      --purple: #bc8cff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px;
+      background: linear-gradient(90deg, #101728 0%, #151d33 100%);
+      border-bottom: 1px solid var(--border);
+    }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: 0.2px; }
+    .brand small { color: var(--muted); display: block; font-size: 12px; }
+    .nav-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+      background: #1a2338; border: 1px solid var(--border); color: var(--text);
+      text-decoration: none;
+    }
+    .pill.hubble { background: #14283c; border-color: #2563eb; color: #7dd3fc; }
+    .pill.hubble:hover { background: #1b3652; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; }
+
+    main {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 16px 20px 28px;
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 1024px) {
+      main { grid-template-columns: 1fr; }
+    }
+    .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+      min-width: 0;
+    }
+    .card-hdr {
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      margin-bottom: 10px;
+    }
+    .card-hdr h2 { margin: 0; font-size: 14px; font-weight: 700; }
+    .tag {
+      font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+      border: 1px solid var(--border); background: var(--panel2); color: var(--muted);
+    }
+    .tag.low { color: var(--green); border-color: #238636; background: #0f2618; }
+    .tag.high { color: var(--red); border-color: #b62324; background: #2d1216; }
+    .tag.pending { color: var(--amber); border-color: #9e6a03; background: #2b2009; }
+    .tag.ui { color: var(--purple); border-color: #6e40c9; background: #211636; }
+
+    .scenario-list { display: flex; flex-direction: column; gap: 8px; }
+    .scenario-btn {
+      width: 100%;
+      text-align: left;
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 10px 12px;
+      color: var(--text);
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+    .scenario-btn:hover { border-color: var(--blue); background: #1c263b; }
+    .scenario-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 600; }
+    .scenario-desc { color: var(--muted); font-size: 12px; margin-top: 3px; }
+
+    .queue-item {
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+    }
+    .queue-item.is-pending { border-color: #9e6a03; background: #1d180c; }
+    .queue-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .actions { display: flex; gap: 6px; margin-top: 8px; }
+    button.act {
+      border: 1px solid transparent; border-radius: 6px; padding: 5px 10px;
+      font-size: 12px; font-weight: 600; cursor: pointer;
+    }
+    button.approve { background: #1f6f3b; color: #fff; border-color: #2ea043; }
+    button.approve:hover { background: #268748; }
+    button.reject { background: #7a1f24; color: #fff; border-color: #da3633; }
+    button.reject:hover { background: #9b262c; }
+    button.secondary { background: var(--panel2); color: var(--text); border-color: var(--border); }
+    button.secondary:hover { background: #232e46; }
+
+    .mcp-frame-wrap {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: #0d1117;
+    }
+    .mcp-frame-bar {
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      padding: 7px 12px;
+      background: #141b2b;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+    iframe#mcpAppFrame {
+      width: 100%;
+      height: 310px;
+      border: 0;
+      display: block;
+      background: #0d1117;
+    }
+
+    .wire-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 800px) { .wire-grid { grid-template-columns: 1fr; } }
+    pre {
+      background: #0a0e16;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      margin: 6px 0 0;
+      max-height: 260px;
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    .muted { color: var(--muted); }
+    .endpoints {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px;
+    }
+    .ep {
+      background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+    }
+    .ep code { color: var(--blue); font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+    .ep div { color: var(--muted); font-size: 11px; margin-top: 2px; }
+    .tools-table { width: 100%; border-collapse: collapse; }
+    .tools-table th, .tools-table td {
+      text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 12px;
+    }
+    .tools-table th { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+    #liveBanner {
+      display: none;
+      padding: 9px 12px;
+      border-radius: 8px;
+      border: 1px solid #9e6a03;
+      background: #2b2009;
+      color: #f2cc60;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span style="font-size:22px">🛡️</span>
+      <div>
+        <h1>MCP Tool Call Enforcement Gateway</h1>
+        <small>Layer 1: Go MCP Approval Gate &amp; Native MCP Apps · Layer 2: Cilium · Layer 3: Tetragon</small>
+      </div>
+    </div>
+    <div class="nav-actions">
+      <span class="pill"><span class="dot"></span> <span id="protoInfo">MCP 2025-06-18</span></span>
+      <a id="hubbleLink" class="pill hubble" href="http://localhost:31235" target="_blank" rel="noopener">🔭 Open Hubble UI (:31235)</a>
+      <button class="act secondary" onclick="bootstrapMCP()">↻ Re-Initialize MCP</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- LEFT COLUMN: Simulated Agent + Approval Queue -->
+    <div class="col">
+      <div class="card">
+        <div class="card-hdr">
+          <h2>🤖 Simulated Agent Scenarios (No LLM Needed)</h2>
+          <span class="tag">JSON-RPC 2.0</span>
+        </div>
+        <p class="muted" style="margin:0 0 10px">
+          Click any scenario to send a real MCP <code>tools/call</code> to <code>POST /mcp</code> and watch enforcement across all 3 layers.
+        </p>
+        <div class="scenario-list">
+          <button class="scenario-btn" onclick="runScenario('list_inventory', {scope:'demo'})">
+            <div class="scenario-top">
+              <span>1. Safe Read · <code>list_inventory</code></span>
+              <span class="tag low">L1 PASS</span>
+            </div>
+            <div class="scenario-desc">Low-risk read → forwarded via <code>mcp-tool-runner</code> to <code>approved-backend</code>. Renders native MCP App table.</div>
+          </button>
+
+          <button class="scenario-btn" onclick="runScenario('get_status', {})">
+            <div class="scenario-top">
+              <span>2. Posture Check · <code>get_status</code></span>
+              <span class="tag low">L1 PASS</span>
+            </div>
+            <div class="scenario-desc">Inspect live Gateway approval counts and 3-layer defense posture via native MCP App.</div>
+          </button>
+
+          <button class="scenario-btn" onclick="runScenario('drop_database', {target:'prod-orders', reason:'indirect_prompt_injection'})">
+            <div class="scenario-top">
+              <span>3. Prompt Injection · <code>drop_database</code></span>
+              <span class="tag pending">L1 HOLD</span>
+            </div>
+            <div class="scenario-desc">High-risk tool call blocks in <code>PENDING_APPROVAL</code> until a human approves or rejects below.</div>
+          </button>
+
+          <button class="scenario-btn" onclick="runScenario('fetch_url', {url:'http://approved-backend.mcp-demo.svc.cluster.local:8080/inventory'})">
+            <div class="scenario-top">
+              <span>4. Approved Egress · <code>fetch_url</code> (Internal)</span>
+              <span class="tag low">L2 ALLOW</span>
+            </div>
+            <div class="scenario-desc">After approval, <code>mcp-tool-runner</code> fetches <code>approved-backend:8080</code> → <b>FORWARDED</b> in Hubble UI.</div>
+          </button>
+
+          <button class="scenario-btn" onclick="runScenario('fetch_url', {url:'https://example.com'})">
+            <div class="scenario-top">
+              <span>5. Exfiltration · <code>fetch_url</code> (External)</span>
+              <span class="tag high">L2 DROP</span>
+            </div>
+            <div class="scenario-desc">Even after L1 approval, Cilium CNP blocks <code>example.com</code> → <b>DROPPED</b> in Hubble UI!</div>
+          </button>
+
+          <button class="scenario-btn" onclick="runScenario('exec_shell', {command:'id'})">
+            <div class="scenario-top">
+              <span>6. Shell Escape · <code>exec_shell</code></span>
+              <span class="tag high">L3 SIGKILL</span>
+            </div>
+            <div class="scenario-desc">Even after L1 approval, Tetragon kills <code>/bin/sh</code> in kernel → <b>Exit 137 (SIGKILL)</b>!</div>
+          </button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hdr">
+          <h2>🧑‍⚖️ Human Approval Gate Queue</h2>
+          <span id="pendingCount" class="tag pending">0 pending</span>
+        </div>
+        <div id="queueList" class="muted">No high-risk tool calls recorded yet. Trigger a scenario or run <code>trigger-high-risk.sh</code>.</div>
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN: Native MCP App Viewport + Wire Inspector + Discovered Tools -->
+    <div class="col">
+      <div id="liveBanner"></div>
+
+      <div class="card">
+        <div class="card-hdr">
+          <h2>🪟 Native MCP App UI Viewport</h2>
+          <span id="activeUri" class="tag ui">ui://mcp-demo/security-posture</span>
+        </div>
+        <div class="mcp-frame-wrap">
+          <div class="mcp-frame-bar">
+            <span class="mono muted">sandbox="allow-scripts" · MIME: <strong style="color:#bc8cff">text/html;profile=mcp-app</strong></span>
+            <span id="bridgeStatus" class="mono muted">postMessage bridge ready</span>
+          </div>
+          <iframe id="mcpAppFrame" sandbox="allow-scripts" title="Native MCP App"></iframe>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hdr">
+          <h2>📡 MCP Protocol Wire Inspector (JSON-RPC 2.0)</h2>
+          <div style="display:flex;gap:6px">
+            <button class="act secondary" onclick="inspectMethod('initialize')">initialize</button>
+            <button class="act secondary" onclick="inspectMethod('tools/list')">tools/list</button>
+            <button class="act secondary" onclick="inspectMethod('resources/list')">resources/list</button>
+          </div>
+        </div>
+        <div class="wire-grid">
+          <div>
+            <div class="muted" style="font-weight:600">Last Request → <code>POST /mcp</code></div>
+            <pre id="reqView">{}</pre>
+          </div>
+          <div>
+            <div class="muted" style="font-weight:600">Last Response ← <code>mcp-gateway</code></div>
+            <pre id="resView">{}</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-hdr">
+          <h2>🧰 Discovered MCP Tools &amp; Endpoints</h2>
+          <span id="toolCount" class="tag">0 tools</span>
+        </div>
+        <table class="tools-table">
+          <thead><tr><th>Tool</th><th>Risk</th><th>Layer Target</th><th>Native MCP UI Resource</th></tr></thead>
+          <tbody id="toolsBody"><tr><td colspan="4" class="muted">Loading tools/list...</td></tr></tbody>
+        </table>
+        <div style="margin-top:12px" class="endpoints">
+          <div class="ep"><code>POST /mcp</code><div>Streamable HTTP MCP JSON-RPC 2.0</div></div>
+          <div class="ep"><code>GET /pending</code><div>List held &amp; audited tool calls</div></div>
+          <div class="ep"><code>POST /approve?id=N</code><div>Approve held call &amp; unblock client</div></div>
+          <div class="ep"><code>POST /reject?id=N</code><div>Reject held call (-32001 error)</div></div>
+          <div class="ep"><code>GET :31235</code><div>Cilium Hubble UI service map &amp; drops</div></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let rpcSeq = 1;
+    let toolsByName = {};
+    let currentAppURI = null;
+    let lastToolResult = null;
+    let iframeReady = false;
+
+    function computeHubbleURL() {
+      const loc = window.location;
+      // Killercoda proxy hostname format: <id>-30090.<domain>
+      if (loc.hostname.includes("-30090.")) {
+        return loc.protocol + "//" + loc.hostname.replace("-30090.", "-31235.") + "/";
+      }
+      return loc.protocol + "//" + loc.hostname + ":31235/";
+    }
+    document.getElementById("hubbleLink").href = computeHubbleURL();
+
+    async function mcpRPC(method, params, showWire = true) {
+      const payload = { jsonrpc: "2.0", id: rpcSeq++, method: method };
+      if (params !== undefined) payload.params = params;
+      if (showWire) {
+        document.getElementById("reqView").textContent = JSON.stringify(payload, null, 2);
+      }
+      const resp = await fetch("/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await resp.json();
+      if (showWire) {
+        document.getElementById("resView").textContent = JSON.stringify(data, null, 2);
+      }
+      return data;
+    }
+
+    async function loadMCPApp(uri, toolResult) {
+      lastToolResult = toolResult;
+      document.getElementById("activeUri").textContent = uri;
+      const frame = document.getElementById("mcpAppFrame");
+      if (currentAppURI === uri && iframeReady) {
+        pushToolResultToFrame(toolResult);
+        return;
+      }
+      currentAppURI = uri;
+      iframeReady = false;
+      const res = await mcpRPC("resources/read", { uri: uri }, false);
+      const html = res?.result?.contents?.[0]?.text || "<p style='color:#f85149;padding:12px'>Failed to load MCP App resource</p>";
+      frame.srcdoc = html;
+    }
+
+    function pushToolResultToFrame(result) {
+      const frame = document.getElementById("mcpAppFrame");
+      if (!frame || !frame.contentWindow || !result) return;
+      frame.contentWindow.postMessage({
+        jsonrpc: "2.0",
+        method: "ui/notifications/tool-result",
+        params: result
+      }, "*");
+    }
+
+    // Listen to MCP Apps postMessage events from inside the sandboxed iframe
+    window.addEventListener("message", function (ev) {
+      const msg = ev.data;
+      if (!msg || typeof msg !== "object") return;
+      if (msg.method === "ui/notifications/initialized") {
+        iframeReady = true;
+        document.getElementById("bridgeStatus").textContent = "postMessage bridge connected ✓";
+        if (lastToolResult) pushToolResultToFrame(lastToolResult);
+      } else if (msg.method === "tools/call" && msg.params && msg.params.name) {
+        runScenario(msg.params.name, msg.params.arguments || {});
+      }
+    });
+
+    function showBanner(text) {
+      const b = document.getElementById("liveBanner");
+      if (!text) { b.style.display = "none"; return; }
+      b.textContent = text;
+      b.style.display = "block";
+    }
+
+    async function runScenario(name, args) {
+      const meta = toolsByName[name]?._meta || {};
+      if (meta.riskLevel === "HIGH") {
+        showBanner("⏳ High-risk tool call '" + name + "' is HELD in PENDING_APPROVAL! Approve or Reject it in the Human Approval Gate Queue on the left.");
+      } else {
+        showBanner("▶ Executing low-risk tool '" + name + "'...");
+      }
+      setTimeout(refreshPending, 250);
+      try {
+        const res = await mcpRPC("tools/call", { name: name, arguments: args }, true);
+        showBanner("");
+        const uri = res?.result?._meta?.ui?.resourceUri || meta?.ui?.resourceUri;
+        if (uri && res.result) {
+          await loadMCPApp(uri, res.result);
+        }
+      } catch (err) {
+        showBanner("Error calling MCP tool: " + err.message);
+      } finally {
+        refreshPending();
+      }
+    }
+
+    async function inspectMethod(method) {
+      if (method === "initialize") {
+        await mcpRPC("initialize", {
+          protocolVersion: "2025-06-18",
+          capabilities: { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } } },
+          clientInfo: { name: "mcp-enforcement-workbench", version: "2.0.0" }
+        }, true);
+      } else {
+        await mcpRPC(method, {}, true);
+      }
+    }
+
+    async function refreshPending() {
+      try {
+        const r = await fetch("/pending");
+        const data = await r.json();
+        const list = (data.pending || []).slice().sort((a, b) => Number(b.id) - Number(a.id));
+        const pendingOnly = list.filter(x => x.status === "PENDING_APPROVAL");
+        document.getElementById("pendingCount").textContent = pendingOnly.length + " pending";
+        const box = document.getElementById("queueList");
+        if (!list.length) {
+          box.innerHTML = '<span class="muted">No high-risk tool calls recorded yet. Trigger a scenario or run <code>trigger-high-risk.sh</code>.</span>';
+          return;
+        }
+        box.innerHTML = list.slice(0, 12).map(item => {
+          const isP = item.status === "PENDING_APPROVAL";
+          const cls = isP ? "pending" : (item.status === "APPROVED" ? "low" : "high");
+          const args = item.request?.params ? JSON.stringify(item.request.params) : "";
+          return '<div class="queue-item ' + (isP ? 'is-pending' : '') + '">' +
+            '<div class="queue-row">' +
+              '<span><strong>#' + escapeHtml(item.id) + '</strong> · <code>' + escapeHtml(item.tool) + '</code></span>' +
+              '<span class="tag ' + cls + '">' + escapeHtml(item.status) + '</span>' +
+            '</div>' +
+            '<div class="mono muted" style="margin-top:4px;overflow:hidden;text-overflow:ellipsis">' + escapeHtml(args) + '</div>' +
+            (isP ? '<div class="actions">' +
+              '<button class="act approve" onclick="decide(\'' + escapeHtml(item.id) + '\', \'approve\')">✓ Approve</button>' +
+              '<button class="act reject" onclick="decide(\'' + escapeHtml(item.id) + '\', \'reject\')">✕ Reject</button>' +
+            '</div>' : '') +
+          '</div>';
+        }).join("");
+      } catch (_) {}
+    }
+
+    async function decide(id, action) {
+      await fetch("/" + action + "?id=" + encodeURIComponent(id), { method: "POST" });
+      refreshPending();
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    async function bootstrapMCP() {
+      const init = await mcpRPC("initialize", {
+        protocolVersion: "2025-06-18",
+        capabilities: { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } } },
+        clientInfo: { name: "mcp-enforcement-workbench", version: "2.0.0" }
+      }, false);
+      if (init?.result?.protocolVersion) {
+        document.getElementById("protoInfo").textContent = "MCP " + init.result.protocolVersion + " · Apps UI";
+      }
+      const list = await mcpRPC("tools/list", {}, false);
+      const tools = list?.result?.tools || [];
+      toolsByName = {};
+      document.getElementById("toolCount").textContent = tools.length + " tools";
+      const tbody = document.getElementById("toolsBody");
+      tbody.innerHTML = tools.map(t => {
+        toolsByName[t.name] = t;
+        const risk = t._meta?.riskLevel || "HIGH";
+        const layer = t._meta?.layer || "L1 Gateway";
+        const uri = t._meta?.ui?.resourceUri || "-";
+        return '<tr>' +
+          '<td class="mono"><strong>' + escapeHtml(t.name) + '</strong></td>' +
+          '<td><span class="tag ' + (risk === "LOW" ? "low" : "high") + '">' + escapeHtml(risk) + '</span></td>' +
+          '<td>' + escapeHtml(layer) + '</td>' +
+          '<td class="mono" style="color:#bc8cff">' + escapeHtml(uri) + '</td>' +
+        '</tr>';
+      }).join("");
+      await runScenario("get_status", {});
+      refreshPending();
+    }
+
+    bootstrapMCP();
+    setInterval(refreshPending, 1200);
+  </script>
+</body>
+</html>

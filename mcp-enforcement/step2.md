@@ -1,52 +1,48 @@
-# Layer 2: Network Egress Lockdown (Cilium)
+# Layer 2: Network Egress Lockdown (Cilium) & Hubble UI
 
-Even if a tool call is approved (or an agent has legitimate execution rights), a compromised tool runner must not be able to exfiltrate data or reach arbitrary external endpoints. Cilium enforces identity-aware **L3/L4 egress policy** in the eBPF datapath so the pod can only talk to explicitly allowed destinations.
+Even if a tool call is approved at Layer 1 (e.g., `fetch_url`), a compromised tool runner must not be able to exfiltrate data to arbitrary internet endpoints. **Cilium** enforces identity-aware L3/L4 egress in the eBPF datapath, and **Hubble UI** lets you watch every `FORWARDED` and `DROPPED` flow live.
 
-## 1. Baseline (before policy): unhardened egress
+## 1. Open Hubble UI
 
-From `deploy/mcp-tool-runner` in `mcp-demo`, test an external destination. Before applying the Cilium policy, this should succeed:
+Open **[Hubble UI (:31235)]({{TRAFFIC_HOST1_31235}})** in a new tab and select the **`mcp-demo`** namespace in the top-left dropdown.
+
+## 2. Baseline (before policy): unhardened external egress
+
+Test reaching `https://example.com` directly from `deploy/mcp-tool-runner` (invoking `curl` directly without `/bin/sh`):
 
 ```bash
-kubectl -n mcp-demo exec deploy/mcp-tool-runner -- sh -c 'curl -sSI --max-time 5 https://example.com | head -n 1'
+kubectl -n mcp-demo exec deploy/mcp-tool-runner -- curl -sSI --max-time 5 https://example.com | head -n 1
 ```{{exec}}
 
-Expected: an HTTP status line such as `HTTP/2 200` (baseline external egress is reachable).
+Expected: `HTTP/2 200` (baseline external egress is allowed—and visible as a green `FORWARDED` flow to `world` in Hubble UI).
 
-## 2. Inspect and apply the Cilium egress policy
+## 3. Inspect and apply the Cilium egress policy
 
-Review the policy (allows DNS to `kube-dns` and TCP/8080 only to `app=approved-backend` in `mcp-demo`):
+Review the policy (allows only DNS to `kube-dns:53` and TCP `8080` to `app=approved-backend` in `mcp-demo`):
 
 ```bash
-cat /root/mcp-lab/assets/policies/cnp-mcp-egress.yaml
+cat /root/mcp-lab/policies/cnp-mcp-egress.yaml
 ```{{exec}}
 
-Apply it:
+Apply the `CiliumNetworkPolicy`:
 
 ```bash
-kubectl apply -f /root/mcp-lab/assets/policies/cnp-mcp-egress.yaml
-```{{exec}}
-
-```bash
+kubectl apply -f /root/mcp-lab/policies/cnp-mcp-egress.yaml
 kubectl -n mcp-demo get ciliumnetworkpolicies.cilium.io
 ```{{exec}}
 
-## 3. Re-test egress (after policy): blocked internet, allowed backend
+## 4. Watch Cilium block exfiltration in real time (CLI + Hubble UI + MCP Console)
 
-Attempt to reach the public internet again (should be dropped/timed out by Cilium):
-
-```bash
-kubectl -n mcp-demo exec deploy/mcp-tool-runner -- sh -c 'curl -sSI --max-time 5 https://example.com | head -n 1 || echo "example.com: BLOCKED/TIMEOUT"'
-```{{exec}}
-
-Immediately test the approved in-cluster backend (should still succeed):
+Run the combined exfiltration check:
 
 ```bash
-kubectl -n mcp-demo exec deploy/mcp-tool-runner -- sh -c 'curl -sS --max-time 5 -o /dev/null -w "approved-backend: HTTP %{http_code}\n" http://approved-backend.mcp-demo.svc.cluster.local:8080/'
+/root/mcp-lab/scripts/test-exfiltration.sh
 ```{{exec}}
 
-> **Scripted check:** you can run the combined enforcement test script as well:
-> ```bash
-> /root/mcp-lab/assets/scripts/test-exfiltration.sh
-> ```{{exec}}
+Switch to **[Hubble UI (:31235)]({{TRAFFIC_HOST1_31235}})** (namespace `mcp-demo`) and observe:
+- **Green (`FORWARDED`):** `mcp-tool-runner` → `approved-backend:8080` and `kube-dns:53`
+- **Red (`DROPPED — Policy denied`):** `mcp-tool-runner` → `world` (`example.com:443`)!
 
-**Takeaway:** least-privilege network isolation limits blast radius and blocks exfiltration paths, even when a tool invocation itself is valid or approved. Next, we enforce runtime behavior at the kernel level with Tetragon.
+> **Try it end-to-end through the MCP Console!** Open **[MCP Console (:30090)]({{TRAFFIC_HOST1_30090}})**, click **Scenario 5 (`fetch_url` → `https://example.com`)**, click **Approve** at Layer 1, and watch Layer 2 (Cilium) STILL block the exfiltration and render the red **BLOCKED BY CILIUM** native MCP App card!
+
+**Takeaway:** Least-privilege Cilium egress policies stop data exfiltration in the kernel datapath—even if Layer 1 approval was granted.
