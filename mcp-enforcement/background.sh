@@ -22,6 +22,8 @@ on_error() {
   echo "[background] ERROR during '${stage}' (exit ${rc}). Cluster snapshot:"
   kubectl get nodes -o wide 2>/dev/null || true
   kubectl get pods -A 2>/dev/null || true
+  kubectl -n mcp-demo get svc,ep 2>/dev/null || true
+  kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status --brief 2>/dev/null || true
   exit "$rc"
 }
 trap on_error ERR
@@ -43,7 +45,13 @@ kubectl get nodes >/dev/null 2>&1
 kubectl taint nodes --all node-role.kubernetes.io/control-plane- 2>/dev/null || true
 kubectl taint nodes --all node-role.kubernetes.io/master- 2>/dev/null || true
 
-# Fix script permissions (keep YAML/Go non-executable)
+# Wait briefly for Killercoda assets to be present and fix script permissions
+for _ in $(seq 1 30); do
+  if [ -f "$LAB_DIR/gateway/k8s.yaml" ]; then
+    break
+  fi
+  sleep 1
+done
 chmod +x "$LAB_DIR"/scripts/*.sh 2>/dev/null || true
 
 # Reduce Killercoda Theia editor clutter by hiding root dotfiles/caches
@@ -76,25 +84,41 @@ if ! command -v helm >/dev/null 2>&1; then
   curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 fi
 
-# Detect and remove pre-installed Canal/Flannel/Calico so Cilium doesn't conflict or stall
-for ds in canal kube-flannel-ds calico-node; do
+# Detect node InternalIP for Cilium eBPF kube-proxy replacement (Killercoda runs without kube-proxy or with Cilium KPR)
+API_SERVER_IP="$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true)"
+if [ -z "$API_SERVER_IP" ]; then
+  API_SERVER_IP="$(hostname -I | awk '{print $1}')"
+fi
+[ -n "$API_SERVER_IP" ]
+echo "[background] Control-plane InternalIP: ${API_SERVER_IP}"
+
+# Detect and remove pre-installed Canal/Flannel/Calico and kube-proxy so Cilium owns CNI + NodePort cleanly
+for ds in canal kube-flannel-ds calico-node kube-proxy; do
   if kubectl -n kube-system get ds "$ds" >/dev/null 2>&1; then
-    echo "[background] Removing pre-installed CNI DaemonSet: $ds"
+    echo "[background] Removing pre-installed DaemonSet: $ds"
     kubectl -n kube-system delete ds "$ds" --ignore-not-found=true
   fi
 done
+kubectl -n kube-system delete cm kube-proxy --ignore-not-found=true 2>/dev/null || true
 rm -f /etc/cni/net.d/*canal* /etc/cni/net.d/*flannel* /etc/cni/net.d/*calico* 2>/dev/null || true
 
-helm repo add cilium https://helm.cilium.io >/dev/null
-helm repo update >/dev/null
+helm repo add cilium https://helm.cilium.io --force-update >/dev/null
+helm repo update cilium >/dev/null
 
-# Single-pass Helm install: Cilium + 1 operator replica + Hubble Relay + Hubble UI on NodePort 31235
-# envoy.enabled=false saves ~400MB image pull & RAM (L3/L4 CNP + Hubble work without Envoy)
+# Single-pass Helm install: Cilium (with full eBPF kube-proxy replacement for NodePorts 30090 & 31235)
+# + 1 operator replica + Hubble Relay + Hubble UI on NodePort 31235
+# envoy.enabled=false avoids a separate Envoy DaemonSet image pull (L3/L4 CNP + DNS proxy + Hubble work)
 helm upgrade --install cilium cilium/cilium \
   --namespace kube-system \
+  --set kubeProxyReplacement=true \
+  --set k8sServiceHost="$API_SERVER_IP" \
+  --set k8sServicePort=6443 \
+  --set socketLB.enabled=true \
+  --set nodePort.enabled=true \
   --set operator.replicas=1 \
   --set envoy.enabled=false \
   --set cni.exclusive=true \
+  --set rollOutCiliumPods=true \
   --set hubble.enabled=true \
   --set hubble.relay.enabled=true \
   --set hubble.ui.enabled=true \
@@ -102,6 +126,11 @@ helm upgrade --install cilium cilium/cilium \
   --set hubble.ui.service.nodePort=31235 \
   --wait \
   --timeout 5m
+
+kubectl -n kube-system rollout status ds/cilium --timeout=180s
+kubectl -n kube-system rollout status deploy/hubble-relay --timeout=180s
+kubectl -n kube-system rollout status deploy/hubble-ui --timeout=180s
+kubectl -n kube-system exec ds/cilium -c cilium-agent -- cilium-dbg status | grep -E 'KubeProxyReplacement|Socket LB|Hubble' || true
 
 # Restart CoreDNS so it gets a Cilium-managed identity & endpoint cleanly
 kubectl -n kube-system rollout restart deploy/coredns 2>/dev/null || true
@@ -139,12 +168,18 @@ wait_deploy mcp-gateway
 set_status "[5/5] Verifying MCP Gateway (:30090) & Hubble UI (:31235)..."
 
 for _ in $(seq 1 30); do
-  if curl -fsS http://localhost:30090/healthz >/dev/null 2>&1; then
+  if curl -fsS http://localhost:30090/healthz >/dev/null 2>&1 \
+    && curl -fsS "http://${API_SERVER_IP}:30090/healthz" >/dev/null 2>&1 \
+    && curl -fsS http://localhost:31235/ >/dev/null 2>&1 \
+    && curl -fsS "http://${API_SERVER_IP}:31235/" >/dev/null 2>&1; then
     break
   fi
   sleep 2
 done
 curl -fsS http://localhost:30090/healthz >/dev/null
+curl -fsS "http://${API_SERVER_IP}:30090/healthz" >/dev/null
+curl -fsS http://localhost:31235/ >/dev/null
+curl -fsS "http://${API_SERVER_IP}:31235/" >/dev/null
 
 set_status "Ready! MCP Gateway (:30090) + Hubble UI (:31235) + Tetragon are online."
 touch "$DONE_FILE"
